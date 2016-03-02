@@ -4,11 +4,11 @@ import logging
 import time
 import json
 from optparse import OptionParser
+from utility.py_sys_cmd import PySysCommand
 
 log = logging.getLogger('perf_log')
-perf_log_file = "/tmp/test_perf.log"
 
-def init_logger():
+def init_logger(perf_log_file):
     loglevel = logging.DEBUG
     #formatter = logging.Formatter(format, '%j:%H:%M:%S')
     log = logging.getLogger('perf_log')
@@ -42,38 +42,37 @@ if __name__ == '__main__':
     ## Socket to talk to server
     context = zmq.Context()
     socket = context.socket(zmq.SUB)
+    topicfilter = ""
 
-    # init perf logger
-    log = init_logger()
-    te = {1: 2, 3 : 5}
 
     # connect to servers
+    # NOTE: currently works with only one SUB server
     for ip_port in server_ip_port_list:
         server_ip = ip_port.split(":")[0]
         port = int(ip_port.split(":")[1])
         print "SUB client connecting to PUB server at [%s:%s]" % (server_ip, port)
-        log.info(json.dumps(te))
         socket.connect ("tcp://%s:%s" % (server_ip, port))
         print "SUB client succesfully connected to PUB server at [%s:%s]" % (server_ip, port)
+        socket.setsockopt(zmq.SUBSCRIBE, topicfilter)
+        # Ideally socket will have a method to return client id, skimming through
+        # /usr/lib/python2.7/dist-packages/zmq/sugar/socket.py didnt yield a quick soln.. hacking...
+        client_id = str(socket)
+        client_id = client_id[client_id.rfind("0x") + 2:len(client_id) - 1]
+        print "Client id [%s] " % client_id
 
-    #
-    #print "Collecting updates from weather server..."
-    #socket.connect ("tcp://localhost:%s" % port)
-    #
-    #if len(sys.argv) > 2:
-    #    socket.connect ("tcp://localhost:%s" % port1)
-    #
-    #
-    ## Subscribe to zipcode, default is NYC, 10001
-    #topicfilter = ""
-    #socket.setsockopt(zmq.SUBSCRIBE, topicfilter)
-    #
-    ## Process 5 updates
-    #total_value = 0
-    #for update_nbr in range (5):
-    #    string = socket.recv()
-    #    topic, messagedata = string.split()
-    #    total_value += int(messagedata)
-    #    print topic, messagedata
-
-    #print "Average messagedata value for topic '%s' was %dF" % (topicfilter, total_value / update_nbr)
+    # init perf logger
+    sys_cmd = PySysCommand("mkdir -p /tmp/zmq_client_logs")
+    sys_cmd.run()
+    perf_log_file = "/tmp/zmq_client_logs/%s.log" % client_id
+    log = init_logger(perf_log_file)
+    runtime = 0
+    print "Client iniating recv"
+    while True:
+        st_time = time.time()
+        string = socket.recv()
+        end_time = time.time()
+        latency = end_time - st_time
+        runtime += latency
+        index, messagedata = string.split()
+        print index, messagedata
+        log.info("client_id=%s,latency=%s,total_runtime=%f,index=%s,messagedata=%s", client_id, latency, runtime, index, messagedata)
